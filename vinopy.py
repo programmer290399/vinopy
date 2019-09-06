@@ -3,7 +3,6 @@ import os
 import cv2
 import sys
 import time
-from typing import NewType
 import logging as log
 
 try:
