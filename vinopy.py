@@ -3,37 +3,38 @@ import os
 import cv2
 import sys
 import time
+import configparser
 import logging as log
 
 try:
     from openvino.inference_engine import IENetwork, IECore
 except:
-    log.info("OpenVINO ERROR: Please make sure that OpenVINO is installed properly")
+    log.error("OpenVINO ERROR: Please make sure that OpenVINO is installed properly")
     sys.exit(1)
 
 
 class VinoInfer:
 
-    def __init__(self,
-                 model_path,
-                 model_xml,
-                 input_stream,
-                 extention_lib_path='/opt/intel/openvino/inference_engine/lib/intel64/libcpu_extension_sse4.so',
-                 device='CPU',
-                 labels=None,
-                 prob_thresh=0.5,
-                 async_mode=False):
-
-        self.model_path = model_path
-        self.model_xml = model_xml
-        self.device = device
-        self.input_stream = input_stream
-        self.extention_lib_path = extention_lib_path
-        self.labels = labels
-        self.prob_thresh = prob_thresh
-        self.async_mode = async_mode
-
-    def draw_inference(self):
+    def __init__(self,input_stream):
+        config = configparser.ConfigParser()
+        try:
+            config.read('config.ini', encoding='utf-8-sig')
+        except:
+            log.error('Config.ini missing !!')
+            sys.exit(1)
+        try:
+            self.model_path = config['PATHS']['model_path']
+            self.model_xml = config['PATHS']['xml_path']
+            self.device = config['OPTIONS']['device']
+            self.input_stream = input_stream
+            self.extention_lib_path = config['PATHS']['cpu_extention_path']
+            self.labels = config['PATHS'].get('labels_path', None)
+            self.prob_thresh = float(config['OPTIONS']['probablity_threshold'])
+            self.async_mode = config['OPTIONS'].getboolean('async_mode')
+        except:
+            log.error('Incorrect config , make sure your config file is correct.')
+            sys.exit(1)
+    def draw_inference_from_video(self):
         """
         Call this functions after creating object of VideoInfer
         class by passing all the required parameters to draw inference.
@@ -105,7 +106,7 @@ class VinoInfer:
 
         print("To close the application, press 'CTRL+C' here or switch to the output window and press ESC key")
         print("To switch between sync/async modes, press TAB key in the output window")
-
+        
         while cap.isOpened():
             if self.async_mode:
                 ret, next_frame = cap.read()
@@ -168,6 +169,7 @@ class VinoInfer:
                 async_mode_message = "Async mode is on. Processing request {}".format(cur_request_id) if self.async_mode else \
                     "Async mode is off. Processing request {}".format(cur_request_id)
 
+                print('fps', 1/(render_time+det_time))
                 cv2.putText(frame, inf_time_message, (15, 15), cv2.FONT_HERSHEY_COMPLEX, 0.5, (200, 10, 10), 1)
                 cv2.putText(frame, render_time_message, (15, 30), cv2.FONT_HERSHEY_COMPLEX, 0.5, (10, 10, 200), 1)
                 cv2.putText(frame, async_mode_message, (10, int(initial_h - 20)), cv2.FONT_HERSHEY_COMPLEX, 0.5,
@@ -178,7 +180,6 @@ class VinoInfer:
             cv2.imshow("Detection Results", frame) # Comment this line to stop rendering output
             render_end = time.time()
             render_time = render_end - render_start
-
             if self.async_mode:
                 cur_request_id, next_request_id = next_request_id, cur_request_id
                 frame = next_frame
@@ -194,6 +195,6 @@ class VinoInfer:
 
 if __name__=='__main__':
 
-    infer = VinoInfer('/home/saahil/Desktop/saahil/junk/Retail/object_detection/pedestrian/rmnet_ssd/0013/dldt/FP32/person-detection-retail-0013.bin', '/home/saahil/Desktop/saahil/junk/Retail/object_detection/pedestrian/rmnet_ssd/0013/dldt/FP32/person-detection-retail-0013.xml', 'cam')
+    infer = VinoInfer('cam')
 
-    [print(detection) for detection in infer.draw_inference()]
+    [print(detection) for detection in infer.draw_inference_from_video()]
