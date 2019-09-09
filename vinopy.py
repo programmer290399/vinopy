@@ -163,7 +163,7 @@ class VinoInfer:
                     det_label = labels_map[class_id] if labels_map else str(class_id)
                     cv2.putText(frame, det_label + ' ' + str(round(obj[2] * 100, 1)) + ' %', (xmin, ymin - 7),
                                 cv2.FONT_HERSHEY_COMPLEX, 0.6, color, 1)
-                yield(detections)
+                if len(detections): yield(detections)
                 # Draw performance stats
                 inf_time_message = "Inference time: N\A for async mode" if self.async_mode else \
                     "Inference time: {:.3f} ms".format(det_time * 1000)
@@ -283,10 +283,10 @@ class VinoInfer:
         
 if __name__=='__main__':
 
-    infer = VinoInfer('/home/saahil/Downloads/cbcebc5f17b875d0591838cddb14ebd1')
-    [print(detection) for detection in infer.draw_inference_from_image()]
+    # infer = VinoInfer('/home/saahil/Downloads/cbcebc5f17b875d0591838cddb14ebd1')
+    # [print(detection) for detection in infer.draw_inference_from_image()]
 
-    # infer = VinoInfer('cam')
-    # [print(detection) for detection in infer.draw_inference_from_video()]
+    infer = VinoInfer('cam')
+    [print(detection) for detection in infer.draw_inference_from_video()]
 
 # /home/saahil/Pictures/WhatsApp Image 2018-12-18 at 3.20.18 PM.jpeg
