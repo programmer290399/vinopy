@@ -15,7 +15,17 @@ A python API for using OpenVINO
 ```py
     from vinopy import VinoInfer
 
-    infer_handle = VinoInfer('Input_stream (can be rtsp/cam/path to video_file/image)')
-    # for video stream 
-    infer_handle.draw_inference_from_video()
+    infer_handle_vid = VinoInfer('Input_stream (can be rtsp/cam/path to video_file/image)')
+    # for video stream returns a generator continuously until the input stream ends 
+    [print(detection) for detection in infer_handle.draw_inference_from_video()]
+    # for image returns a list of detections 
+    [print(detection) for detection in infer.draw_inference_from_image()]
+    # output format : [{'class': <class_id>, 'bbox': [(x1, y1), (x2, y2)]},...]
+    # x1,y1-------
+    # |          |
+    # |          |
+    # |          |
+    # --------x2,y2
+
+
 ```

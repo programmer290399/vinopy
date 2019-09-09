@@ -3,6 +3,7 @@ import os
 import cv2
 import sys
 import time
+import numpy as np
 import configparser
 import logging as log
 
@@ -34,6 +35,7 @@ class VinoInfer:
         except:
             log.error('Incorrect config , make sure your config file is correct.')
             sys.exit(1)
+    
     def draw_inference_from_video(self):
         """
         Call this functions after creating object of VideoInfer
@@ -55,8 +57,7 @@ class VinoInfer:
             if len(not_supported_layers) != 0:
                 log.error("Following layers are not supported by the plugin for specified device {}:\n {}".
                           format(self.device, ', '.join(not_supported_layers)))
-                log.error("Please try to specify cpu extensions library path in sample's command line parameters using -l "
-                          "or --cpu_extension command line argument")
+                log.error("Please try to specify cpu extensions library path in config")
                 sys.exit(1)
 
         img_info_input_blob = None
@@ -139,28 +140,29 @@ class VinoInfer:
                 # Parse detection results of the current request
                 res = exec_net.requests[cur_request_id].outputs[out_blob]
                 detections = list()
-                # print([obj for obj in res[0][0] if obj[2]> self.prob_thresh])
-                for obj in res[0][0]:
-                    # Draw only objects when probability more than specified threshold
-                    if obj[2] > self.prob_thresh:
-                        detection_data = dict()
-                        xmin = int(obj[3] * initial_w)
-                        ymin = int(obj[4] * initial_h)
-                        xmax = int(obj[5] * initial_w)
-                        ymax = int(obj[6] * initial_h)
-                        class_id = int(obj[1])
-                        detection_data['class'] = class_id
-                        detection_data['bbox'] = [(xmin, ymin), (xmax, ymax)]
-                        detections.append(detection_data)
-                        # Draw box and label\class_id
-                        color = (min(class_id * 12.5, 255),
-                                 min(class_id * 7, 255),
-                                 min(class_id * 5, 255))
-                        cv2.rectangle(frame, (xmin, ymin), (xmax, ymax),
-                                      color, 2)
-                        det_label = labels_map[class_id] if labels_map else str(class_id)
-                        cv2.putText(frame, det_label + ' ' + str(round(obj[2] * 100, 1)) + ' %', (xmin, ymin - 7),
-                                    cv2.FONT_HERSHEY_COMPLEX, 0.6, color, 1)
+                # print(res[0][0].shape)
+                # return
+            for obj in res[0][0]:
+                # Draw only objects when probability more than specified threshold
+                if obj[2] > self.prob_thresh:
+                    detection_data = dict()
+                    xmin = int(obj[3] * initial_w)
+                    ymin = int(obj[4] * initial_h)
+                    xmax = int(obj[5] * initial_w)
+                    ymax = int(obj[6] * initial_h)
+                    class_id = int(obj[1])
+                    detection_data['class'] = class_id
+                    detection_data['bbox'] = [(xmin, ymin), (xmax, ymax)]
+                    detections.append(detection_data)
+                    # Draw box and label\class_id
+                    color = (min(class_id * 12.5, 255),
+                                min(class_id * 7, 255),
+                                min(class_id * 5, 255))
+                    cv2.rectangle(frame, (xmin, ymin), (xmax, ymax),
+                                    color, 2)
+                    det_label = labels_map[class_id] if labels_map else str(class_id)
+                    cv2.putText(frame, det_label + ' ' + str(round(obj[2] * 100, 1)) + ' %', (xmin, ymin - 7),
+                                cv2.FONT_HERSHEY_COMPLEX, 0.6, color, 1)
                 yield(detections)
                 # Draw performance stats
                 inf_time_message = "Inference time: N\A for async mode" if self.async_mode else \
@@ -192,9 +194,99 @@ class VinoInfer:
                 log.info("Switched to {} mode".format("async" if self.async_mode else "sync"))
 
         cv2.destroyAllWindows()
+    
+    def draw_inference_from_image(self):
 
+        log.basicConfig(format="[ %(levelname)s ] %(message)s", level=log.INFO, stream=sys.stdout)
+        # Plugin initialization for specified device and load extensions library if specified
+        log.info("Creating Inference Engine")
+        ie = IECore()
+        if self.extention_lib_path and 'CPU' in self.device:
+            ie.add_extension(self.extention_lib_path, "CPU")
+        # Read IR
+        log.info("Loading network files:\n\t{}\n\t{}".format(self.model_xml, self.model_path))
+        net = IENetwork(model=self.model_xml, weights=self.model_path)
+
+        if "CPU" in self.device:
+            supported_layers = ie.query_network(net, "CPU")
+            not_supported_layers = [l for l in net.layers.keys() if l not in supported_layers]
+            if len(not_supported_layers) != 0:
+                log.error("Following layers are not supported by the plugin for specified device {}:\n {}".
+                          format(self.device, ', '.join(not_supported_layers)))
+                log.error("Please try to specify cpu extensions library path in config")
+                sys.exit(1)
+
+        assert len(net.inputs.keys()) == 1, "Sample supports only single input topologies"
+        assert len(net.outputs) == 1, "Sample supports only single output topologies"
+
+        log.info("Preparing input blobs")
+        input_blob = next(iter(net.inputs))
+        out_blob = next(iter(net.outputs))
+        net.batch_size = 1
+
+        # Read and pre-process input images
+        n, c, h, w = net.inputs[input_blob].shape
+        
+        
+        image = cv2.imread(self.input_stream)
+        initial_h, initial_w = image.shape[:2]
+
+        if image.shape[:-1] != (h, w):
+            log.warning("Image {} is resized from {} to {}".format(self.input_stream, image.shape[:-1], (h, w)))
+            input_image = cv2.resize(image, (w, h))
+        input_image = input_image.transpose((2, 0, 1))  # Change data layout from HWC to CHW
+
+        # Loading model to the plugin
+        log.info("Loading model to the plugin")
+        exec_net = ie.load_network(network=net, device_name=self.device)
+
+        if self.labels:
+            with open(self.labels, 'r') as f:
+                labels_map = [x.strip() for x in f]
+        else:
+            labels_map = None
+
+        # Start sync inference
+        log.info("Starting inference in synchronous mode")
+        res = exec_net.infer(inputs={input_blob: input_image})
+
+        # Processing output blob
+        log.info("Processing output blob")
+        res = res[out_blob]
+        
+        detections = list()
+        for obj in res[0][0]:
+            if obj[2] > self.prob_thresh:
+                detection_data = dict()
+                xmin = int(obj[3] * initial_w)
+                ymin = int(obj[4] * initial_h)
+                xmax = int(obj[5] * initial_w)
+                ymax = int(obj[6] * initial_h)
+                class_id = int(obj[1])
+                detection_data['class'] = class_id
+                detection_data['bbox'] = [(xmin, ymin), (xmax, ymax)]
+                detections.append(detection_data)
+                # cv2.rectangle(image, (xmin, ymin), (xmax, ymax), (255, 0, 0), 2)
+                # Draw box and label\class_id
+                color = (min(class_id * 12.5, 255),
+                            min(class_id * 7, 255),
+                            min(class_id * 5, 255))
+                cv2.rectangle(image, (xmin, ymin), (xmax, ymax),
+                                color, 2)
+                det_label = labels_map[class_id] if labels_map else str(class_id)
+                cv2.putText(image, det_label + ' ' + str(round(obj[2] * 100, 1)) + ' %', (xmin, ymin - 7),
+                            cv2.FONT_HERSHEY_COMPLEX, 0.6, color, 1)
+        # comment next two lines to stop rendering detection result 
+        cv2.imshow("Detection Result(s)", image)
+        cv2.waitKey(0)
+        return detections
+        
 if __name__=='__main__':
 
-    infer = VinoInfer('cam')
+    infer = VinoInfer('/home/saahil/Downloads/cbcebc5f17b875d0591838cddb14ebd1')
+    [print(detection) for detection in infer.draw_inference_from_image()]
 
-    [print(detection) for detection in infer.draw_inference_from_video()]
+    # infer = VinoInfer('cam')
+    # [print(detection) for detection in infer.draw_inference_from_video()]
+
+# /home/saahil/Pictures/WhatsApp Image 2018-12-18 at 3.20.18 PM.jpeg
